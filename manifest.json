@@ -1,0 +1,8 @@
+{
+	"name": "Export Variables to CSS",
+	"id": "export-variables-to-css-local",
+	"api": "1.0.0",
+	"editorType": ["figma"],
+	"main": "code.js",
+	"ui": "ui.html"
+}

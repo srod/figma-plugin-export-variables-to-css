@@ -1,0 +1,10 @@
+{
+	"scripts": {
+		"build": "bun build code.ts --outfile code.js",
+		"dev": "bun build code.ts --outfile code.js --watch"
+	},
+	"devDependencies": {
+		"@figma/plugin-typings": "^1.123.0",
+		"typescript": "^5.9.3"
+	}
+}
