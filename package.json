@@ -1,9 +1,16 @@
 {
+	"name": "export-variables-to-css",
+	"private": true,
 	"scripts": {
-		"build": "bun build code.ts --outfile code.js",
-		"dev": "bun build code.ts --outfile code.js --watch"
+		"typecheck": "tsc --noEmit",
+		"build": "tsc",
+		"dev": "tsc --watch",
+		"format": "biome format --write",
+		"check": "biome check --write",
+		"lint": "biome check"
 	},
 	"devDependencies": {
+		"@biomejs/biome": "^2.4.7",
 		"@figma/plugin-typings": "^1.123.0",
 		"typescript": "^5.9.3"
 	}

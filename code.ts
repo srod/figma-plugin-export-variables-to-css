@@ -62,21 +62,24 @@ function isColor(value: VariableValue): value is RGBA | RGB {
 	);
 }
 
+// Ordered: more-specific prefixes before less-specific (e.g. surface-layout-layout- before surface-layout-)
+const MAPPED_NAME_SIMPLIFICATIONS: [RegExp, string][] = [
+	[/^mapped-/, ""],
+	[/^text-text-/, "text-"],
+	[/^border-border-/, "border-"],
+	[/^icon-icon-/, "icon-"],
+	[/^surface-layout-layout-/, "surface-"],
+	[/^surface-layout-/, "surface-"],
+	[/^surface-interactive-surface-/, "surface-"],
+	[/^surface-feedback-surface-/, "surface-"],
+	[/^surface-state-surface-/, "surface-"],
+];
+
 function simplifyMappedName(name: string): string {
 	let n = slugify(name);
-
-	n = n.replace(/^mapped-/, "");
-
-	n = n.replace(/^text-text-/, "text-");
-	n = n.replace(/^border-border-/, "border-");
-	n = n.replace(/^icon-icon-/, "icon-");
-
-	n = n.replace(/^surface-layout-layout-/, "surface-");
-	n = n.replace(/^surface-layout-/, "surface-");
-	n = n.replace(/^surface-interactive-surface-/, "surface-");
-	n = n.replace(/^surface-feedback-surface-/, "surface-");
-	n = n.replace(/^surface-state-surface-/, "surface-");
-
+	for (const [pattern, replacement] of MAPPED_NAME_SIMPLIFICATIONS) {
+		n = n.replace(pattern, replacement);
+	}
 	return n;
 }
 
@@ -96,7 +99,6 @@ function variableNameToCss(
 }
 
 function addUnitIfNeeded(
-	cssName: string,
 	cssValue: string,
 	variable: Variable,
 	collectionMap: Map<string, VariableCollection>,
@@ -106,10 +108,10 @@ function addUnitIfNeeded(
 	const variableName = slugify(variable.name);
 
 	// Brand scale => px
-	if (collectionName === "brand" && variableName.indexOf("scale") !== -1) {
+	if (collectionName === "brand" && variableName.includes("scale")) {
 		if (/^-?\d+(\.\d+)?$/.test(cssValue)) {
 			if (cssValue === "0") return "0";
-			return cssValue + "px";
+			return `${cssValue}px`;
 		}
 	}
 
@@ -135,11 +137,11 @@ function variableValueToLiteral(value: VariableValue): string | null {
 	return null;
 }
 
-async function findFallbackModeId(
+function findFallbackModeId(
 	variable: Variable,
 	requestedModeId: string,
 	collectionMap: Map<string, VariableCollection>,
-): Promise<string | null> {
+): string | null {
 	const collection = collectionMap.get(variable.variableCollectionId);
 	if (!collection) return null;
 
@@ -147,12 +149,12 @@ async function findFallbackModeId(
 		return requestedModeId;
 	}
 
-	// fallback simple: default mode de la collection cible
+	// Fallback: collection's default mode
 	if (variable.valuesByMode[collection.defaultModeId] !== undefined) {
 		return collection.defaultModeId;
 	}
 
-	// dernier fallback: premier mode qui a une valeur
+	// Last resort: first mode with a value
 	for (const mode of collection.modes) {
 		if (variable.valuesByMode[mode.modeId] !== undefined) {
 			return mode.modeId;
@@ -231,7 +233,7 @@ async function valueToCss(
 		);
 	}
 
-	// preserve mode: on garde la référence si c'est un alias
+	// Preserve mode: keep alias as var() reference
 	if (isAlias(raw)) {
 		const target =
 			variableMap.get(raw.id) ??
@@ -246,6 +248,308 @@ async function valueToCss(
 	}
 
 	return variableValueToLiteral(raw);
+}
+
+type CssEntry = {
+	name: string;
+	value: string;
+};
+
+// Ordered: more-specific prefixes before less-specific (e.g. --alias-spacing- before --alias-)
+const GROUP_LABEL_RULES: [string, string][] = [
+	["--brand-fontfamily-", "Brand / Typography"],
+	["--brand-fontweight-", "Brand / Typography"],
+	["--brand-grey-", "Brand / Colors / Neutral"],
+	["--brand-foundation-", "Brand / Colors / Neutral"],
+	["--brand-lavender-", "Brand / Colors / Primary"],
+	["--brand-green-", "Brand / Colors / Success"],
+	["--brand-orange-", "Brand / Colors / Warning"],
+	["--brand-red-", "Brand / Colors / Error"],
+	["--brand-scale-", "Brand / Scale"],
+	["--alias-spacing-", "Alias / Spacing & Size"],
+	["--alias-size-", "Alias / Spacing & Size"],
+	["--alias-cornerradius-", "Alias / Radius & Border"],
+	["--alias-borderwidth-", "Alias / Radius & Border"],
+	["--alias-", "Alias / Semantic Colors"],
+	["--text-", "Semantic / Text"],
+	["--surface-", "Semantic / Surface"],
+	["--border-", "Semantic / Border"],
+	["--icon-", "Semantic / Icon"],
+];
+
+function getGroupLabel(cssName: string): string {
+	for (const [prefix, label] of GROUP_LABEL_RULES) {
+		if (cssName.startsWith(prefix)) return label;
+	}
+	return "Other";
+}
+
+function getGroupOrder(label: string): number {
+	const order: Record<string, number> = {
+		"Brand / Typography": 10,
+		"Brand / Colors / Neutral": 20,
+		"Brand / Colors / Primary": 30,
+		"Brand / Colors / Success": 40,
+		"Brand / Colors / Warning": 50,
+		"Brand / Colors / Error": 60,
+		"Brand / Scale": 70,
+
+		"Alias / Spacing & Size": 80,
+		"Alias / Radius & Border": 90,
+		"Alias / Semantic Colors": 100,
+
+		"Semantic / Text": 110,
+		"Semantic / Surface": 120,
+		"Semantic / Border": 130,
+		"Semantic / Icon": 140,
+
+		Other: 999,
+	};
+
+	return order[label] || 999;
+}
+
+function formatSectionComment(label: string): string[] {
+	return [
+		"  /* ========================================",
+		`     ${label}`,
+		"     ======================================== */",
+	];
+}
+
+function getNumericSuffix(value: string): number | null {
+	const match = value.match(/-(\d+)$/);
+	if (!match) return null;
+	return parseInt(match[1], 10);
+}
+
+function getTShirtOrder(value: string): number {
+	const map: Record<string, number> = {
+		none: 0,
+		xs: 10,
+		s: 20,
+		m: 30,
+		l: 40,
+		xl: 50,
+		xxl: 60,
+		full: 999,
+	};
+
+	return map[value] ?? 500;
+}
+
+function getStateOrder(value: string): number {
+	const map: Record<string, number> = {
+		primary: 10,
+		secondary: 20,
+		background: 30,
+		elevated: 40,
+		muted: 50,
+		tertiary: 60,
+		overlay: 70,
+		disabled: 80,
+
+		action: 100,
+		"action-hover": 110,
+		"on-action": 120,
+
+		"primary-hover": 130,
+		"primary-pressed": 140,
+		"secondary-hover": 150,
+		"secondary-pressed": 160,
+
+		subtle: 170,
+		focus: 180,
+		error: 190,
+		success: 200,
+		warning: 210,
+	};
+
+	return map[value] ?? 500;
+}
+
+function sortEntriesInGroup(label: string, entries: CssEntry[]): CssEntry[] {
+	const copy = entries.slice();
+
+	copy.sort((a, b) => {
+		const aName = a.name.replace(/^--/, "");
+		const bName = b.name.replace(/^--/, "");
+
+		if (label === "Brand / Typography") {
+			const fontFamilyA = aName.includes("fontfamily-") ? 0 : 1;
+			const fontFamilyB = bName.includes("fontfamily-") ? 0 : 1;
+			if (fontFamilyA !== fontFamilyB) return fontFamilyA - fontFamilyB;
+
+			const weightOrder: Record<string, number> = {
+				regular: 10,
+				medium: 20,
+				"semi-bold": 30,
+				bold: 40,
+			};
+
+			const aKey = aName.replace(/^brand-fontweight-/, "");
+			const bKey = bName.replace(/^brand-fontweight-/, "");
+			const wa = weightOrder[aKey] ?? 999;
+			const wb = weightOrder[bKey] ?? 999;
+
+			if (wa !== wb) return wa - wb;
+			return aName.localeCompare(bName);
+		}
+
+		if (
+			label === "Brand / Colors / Neutral" ||
+			label === "Brand / Colors / Primary" ||
+			label === "Brand / Colors / Success" ||
+			label === "Brand / Colors / Warning" ||
+			label === "Brand / Colors / Error"
+		) {
+			const aFoundation = aName.includes("foundation-") ? 0 : 1;
+			const bFoundation = bName.includes("foundation-") ? 0 : 1;
+
+			if (aFoundation !== bFoundation) return aFoundation - bFoundation;
+
+			const aNum = getNumericSuffix(aName);
+			const bNum = getNumericSuffix(bName);
+
+			if (aNum != null && bNum != null && aNum !== bNum) {
+				return aNum - bNum;
+			}
+
+			if (aNum != null && bNum == null) return 1;
+			if (aNum == null && bNum != null) return -1;
+
+			return aName.localeCompare(bName);
+		}
+
+		if (label === "Brand / Scale") {
+			if (aName.includes("-full") && !bName.includes("-full")) return 1;
+			if (!aName.includes("-full") && bName.includes("-full")) return -1;
+
+			const aNum = getNumericSuffix(aName);
+			const bNum = getNumericSuffix(bName);
+
+			if (aNum != null && bNum != null && aNum !== bNum) {
+				return aNum - bNum;
+			}
+
+			return aName.localeCompare(bName);
+		}
+
+		if (
+			label === "Alias / Spacing & Size" ||
+			label === "Alias / Radius & Border"
+		) {
+			const aPrefix = aName.split("-").slice(0, 2).join("-");
+			const bPrefix = bName.split("-").slice(0, 2).join("-");
+
+			if (aPrefix !== bPrefix) {
+				return aPrefix.localeCompare(bPrefix);
+			}
+
+			const aTail = aName.split("-").slice(2).join("-");
+			const bTail = bName.split("-").slice(2).join("-");
+
+			const ao = getTShirtOrder(aTail);
+			const bo = getTShirtOrder(bTail);
+
+			if (ao !== bo) return ao - bo;
+			return aTail.localeCompare(bTail);
+		}
+
+		if (label === "Alias / Semantic Colors") {
+			const aParts = aName.split("-");
+			const bParts = bName.split("-");
+
+			const aFamily = aParts.slice(0, 2).join("-");
+			const bFamily = bParts.slice(0, 2).join("-");
+
+			const familyOrder: Record<string, number> = {
+				"alias-neutral": 10,
+				"alias-primary": 20,
+				"alias-success": 30,
+				"alias-warning": 40,
+				"alias-error": 50,
+			};
+
+			const afo = familyOrder[aFamily] ?? 999;
+			const bfo = familyOrder[bFamily] ?? 999;
+
+			if (afo !== bfo) return afo - bfo;
+
+			const aTail = aParts.slice(2).join("-");
+			const bTail = bParts.slice(2).join("-");
+
+			if (aTail === "default" && bTail !== "default") return 1;
+			if (aTail !== "default" && bTail === "default") return -1;
+
+			const aNum = getNumericSuffix(aName);
+			const bNum = getNumericSuffix(bName);
+
+			if (aNum != null && bNum != null && aNum !== bNum) {
+				return aNum - bNum;
+			}
+
+			return aTail.localeCompare(bTail);
+		}
+
+		if (
+			label === "Semantic / Text" ||
+			label === "Semantic / Surface" ||
+			label === "Semantic / Border" ||
+			label === "Semantic / Icon"
+		) {
+			const aTail = aName.split("-").slice(1).join("-");
+			const bTail = bName.split("-").slice(1).join("-");
+
+			const ao = getStateOrder(aTail);
+			const bo = getStateOrder(bTail);
+
+			if (ao !== bo) return ao - bo;
+			return aTail.localeCompare(bTail);
+		}
+
+		return aName.localeCompare(bName);
+	});
+
+	return copy;
+}
+
+function pushGroupedEntries(lines: string[], entries: CssEntry[]): void {
+	const groups = new Map<string, CssEntry[]>();
+
+	for (const entry of entries) {
+		const label = getGroupLabel(entry.name);
+		let arr = groups.get(label);
+		if (!arr) {
+			arr = [];
+			groups.set(label, arr);
+		}
+		arr.push(entry);
+	}
+
+	const orderedLabels = Array.from(groups.keys()).sort((a, b) => {
+		const diff = getGroupOrder(a) - getGroupOrder(b);
+		if (diff !== 0) return diff;
+		return a.localeCompare(b);
+	});
+
+	for (let i = 0; i < orderedLabels.length; i++) {
+		const label = orderedLabels[i];
+		const entriesInGroup = sortEntriesInGroup(label, groups.get(label) || []);
+
+		if (lines.length > 0 && lines[lines.length - 1] !== "") {
+			lines.push("");
+		}
+
+		const commentLines = formatSectionComment(label);
+		for (const commentLine of commentLines) {
+			lines.push(commentLine);
+		}
+
+		for (const entry of entriesInGroup) {
+			lines.push(`  ${entry.name}: ${entry.value};`);
+		}
+	}
 }
 
 async function exportVariablesToCss(
@@ -264,26 +568,27 @@ async function exportVariablesToCss(
 		varsByCollection.set(variable.variableCollectionId, list);
 	}
 
-	type Block = { selector: string; lines: string[] };
+	type Block = { selector: string; entries: CssEntry[] };
 	const blocks: Block[] = [];
 	const blockMap = new Map<string, Block>();
 
 	for (const collection of collections) {
-		const collectionVars = (varsByCollection.get(collection.id) ?? []).sort(
-			(a, b) => a.name.localeCompare(b.name),
-		);
+		let collectionVars = varsByCollection.get(collection.id);
+		if (!collectionVars) {
+			collectionVars = [];
+		}
+
+		collectionVars.sort((a, b) => a.name.localeCompare(b.name));
 
 		for (const mode of collection.modes) {
 			const selector = modeSelector(mode.name, collection.modes.length);
 
 			let block = blockMap.get(selector);
 			if (!block) {
-				block = { selector, lines: [] };
+				block = { selector, entries: [] };
 				blockMap.set(selector, block);
 				blocks.push(block);
 			}
-
-			block.lines.push(`  /* ${collection.name} — ${mode.name} */`);
 
 			for (const variable of collectionVars) {
 				const cssValue = await valueToCss(
@@ -294,26 +599,30 @@ async function exportVariablesToCss(
 					collectionMap,
 				);
 
-				if (cssValue == null) continue;
+				if (cssValue == null) {
+					continue;
+				}
 
 				const name = variableNameToCss(variable, collectionMap);
-				const finalValue = addUnitIfNeeded(
-					name,
-					cssValue,
-					variable,
-					collectionMap,
-				);
-				block.lines.push("  " + name + ": " + finalValue + ";");
-			}
+				const finalValue = addUnitIfNeeded(cssValue, variable, collectionMap);
 
-			block.lines.push("");
+				block.entries.push({
+					name,
+					value: finalValue,
+				});
+			}
 		}
 	}
 
 	return blocks
 		.map((block) => {
-			const lines = [...block.lines];
-			while (lines.length && lines[lines.length - 1] === "") lines.pop();
+			const lines: string[] = [];
+			pushGroupedEntries(lines, block.entries);
+
+			while (lines.length && lines[lines.length - 1] === "") {
+				lines.pop();
+			}
+
 			return `${block.selector} {\n${lines.join("\n")}\n}`;
 		})
 		.join("\n\n");
@@ -328,9 +637,7 @@ figma.ui.onmessage = async (msg) => {
 				msg.outputMode === "resolved" ? "resolved" : "preserve";
 			const css = await exportVariablesToCss(mode);
 			figma.ui.postMessage({ type: "css-result", css });
-		}
-
-		if (msg.type === "close") {
+		} else if (msg.type === "close") {
 			figma.closePlugin();
 		}
 	} catch (error) {

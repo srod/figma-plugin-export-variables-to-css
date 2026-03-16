@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <style>
@@ -64,18 +64,18 @@
   </head>
   <body>
     <div class="row">
-      <button id="export" class="primary">Exporter en CSS</button>
-      <button id="copy" class="secondary">Copier</button>
-      <button id="close" class="secondary">Fermer</button>
+      <button type="button" id="export" class="primary">Export to CSS</button>
+      <button type="button" id="copy" class="secondary">Copy</button>
+      <button type="button" id="close" class="secondary">Close</button>
 
-      <label for="mode">Mode :</label>
+      <label for="mode">Mode:</label>
       <select id="mode">
         <option value="preserve" selected>Preserve aliases</option>
         <option value="resolved">Resolve final values</option>
       </select>
     </div>
 
-    <div class="status" id="status">Prêt.</div>
+    <div class="status" id="status">Ready.</div>
     <textarea id="output" spellcheck="false"></textarea>
 
     <script>
@@ -84,7 +84,7 @@
       const modeEl = document.getElementById("mode");
 
       document.getElementById("export").onclick = () => {
-        statusEl.textContent = "Export en cours…";
+        statusEl.textContent = "Exporting…";
         parent.postMessage(
           {
             pluginMessage: {
@@ -96,32 +96,27 @@
         );
       };
 
-      document.getElementById("copy").onclick = async () => {
-        try {
-          await navigator.clipboard.writeText(output.value);
-          statusEl.textContent = "CSS copié.";
-        } catch {
-          output.select();
-          document.execCommand("copy");
-          statusEl.textContent = "CSS copié.";
-        }
+      document.getElementById("copy").onclick = () => {
+        output.select();
+        document.execCommand("copy");
+        statusEl.textContent = "CSS copied.";
       };
 
       document.getElementById("close").onclick = () => {
         parent.postMessage({ pluginMessage: { type: "close" } }, "*");
       };
 
-      onmessage = (event) => {
+      window.onmessage = (event) => {
         const msg = event.data.pluginMessage;
         if (!msg) return;
 
         if (msg.type === "css-result") {
           output.value = msg.css;
-          statusEl.textContent = "Export terminé.";
+          statusEl.textContent = "Export complete.";
         }
 
         if (msg.type === "error") {
-          statusEl.textContent = "Erreur : " + msg.message;
+          statusEl.textContent = `Error: ${msg.message}`;
         }
       };
     </script>
