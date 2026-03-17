@@ -78,6 +78,7 @@ function variableNameToCss(variable, collectionMap) {
     return `--${collectionName}-${variableName}`;
 }
 function addUnitIfNeeded(cssValue, variable, collectionMap) {
+    var _a;
     const collection = collectionMap.get(variable.variableCollectionId);
     const collectionName = collection ? slugify(collection.name) : "";
     const variableName = slugify(variable.name);
@@ -88,6 +89,16 @@ function addUnitIfNeeded(cssValue, variable, collectionMap) {
                 return "0";
             return `${cssValue}px`;
         }
+    }
+    // Brand font weight => numeric
+    if (collectionName === "brand" && variableName.includes("fontweight")) {
+        const numericWeight = {
+            Regular: "400",
+            Medium: "500",
+            "Semi Bold": "600",
+            Bold: "700",
+        };
+        return (_a = numericWeight[cssValue]) !== null && _a !== void 0 ? _a : cssValue;
     }
     return cssValue;
 }

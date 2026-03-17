@@ -115,6 +115,17 @@ function addUnitIfNeeded(
 		}
 	}
 
+	// Brand font weight => numeric
+	if (collectionName === "brand" && variableName.includes("fontweight")) {
+		const numericWeight: Record<string, string> = {
+			Regular: "400",
+			Medium: "500",
+			"Semi Bold": "600",
+			Bold: "700",
+		};
+		return numericWeight[cssValue] ?? cssValue;
+	}
+
 	return cssValue;
 }
 
