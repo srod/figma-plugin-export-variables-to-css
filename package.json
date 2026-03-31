@@ -12,6 +12,6 @@
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.7",
 		"@figma/plugin-typings": "^1.123.0",
-		"typescript": "^5.9.3"
+		"typescript": "^6.0.0"
 	}
 }
